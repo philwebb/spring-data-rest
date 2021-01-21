@@ -21,6 +21,7 @@ import java.util.Objects;
 
 import javax.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.core.Ordered;
 import org.springframework.util.Assert;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
@@ -42,9 +43,11 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * @soundtrack Benny Greb - Stabila (Moving Parts)
  */
 class DelegatingHandlerMapping
-		implements org.springframework.data.rest.webmvc.support.DelegatingHandlerMapping, Ordered {
+		implements org.springframework.data.rest.webmvc.support.DelegatingHandlerMapping, Ordered, InitializingBean {
 
 	private final List<HandlerMapping> delegates;
+
+	private PathPatternParser pathPatternParser;
 
 	/**
 	 * Creates a new {@link DelegatingHandlerMapping} for the given delegates.
@@ -59,11 +62,12 @@ class DelegatingHandlerMapping
 	}
 
 	void setPatternParser(PathPatternParser parser) {
-
-		delegates.stream() //
-				.filter(AbstractHandlerMapping.class::isInstance) //
-				.map(AbstractHandlerMapping.class::cast) //
-				.forEach(it -> it.setPatternParser(parser));
+		this.pathPatternParser = parser;
+		for (HandlerMapping delegate : delegates) {
+			if (delegate instanceof AbstractHandlerMapping) {
+				((AbstractHandlerMapping) delegate).setPatternParser(parser);
+			}
+		}
 	}
 
 	@SuppressWarnings("all")
@@ -109,6 +113,15 @@ class DelegatingHandlerMapping
 			return HandlerSelectionResult.from(request, delegates).match(pattern);
 		} catch (Exception o_O) {
 			return null;
+		}
+	}
+
+	@Override
+	public void afterPropertiesSet() throws Exception {
+		for (HandlerMapping delegate : delegates) {
+			if(delegate instanceof InitializingBean) {
+				((InitializingBean) delegate).afterPropertiesSet();
+			}
 		}
 	}
 

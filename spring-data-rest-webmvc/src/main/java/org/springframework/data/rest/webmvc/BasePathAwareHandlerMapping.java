@@ -15,6 +15,7 @@
  */
 package org.springframework.data.rest.webmvc;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,6 +37,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.condition.ProducesRequestCondition;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo.BuilderConfiguration;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
@@ -46,6 +48,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 public class BasePathAwareHandlerMapping extends RequestMappingHandlerMapping {
 
 	private final RepositoryRestConfiguration configuration;
+
+	private RequestMappingInfo emptyMapping;
 
 	/**
 	 * Creates a new {@link BasePathAwareHandlerMapping} using the given {@link RepositoryRestConfiguration}.
@@ -67,6 +71,33 @@ public class BasePathAwareHandlerMapping extends RequestMappingHandlerMapping {
 
 			this.setPathPrefixes(prefixes);
 		}
+	}
+
+
+	@Override
+	public void afterPropertiesSet() {
+		super.afterPropertiesSet();
+	}
+
+	@Override
+	protected void initHandlerMethods() {
+		this.emptyMapping = RequestMappingInfo.paths().options(getBuilderConfiguration()).build();
+		super.initHandlerMethods();
+	}
+
+	private BuilderConfiguration getBuilderConfiguration() {
+		BuilderConfiguration config = new RequestMappingInfo.BuilderConfiguration();
+		config.setTrailingSlashMatch(useTrailingSlashMatch());
+		config.setContentNegotiationManager(getContentNegotiationManager());
+		if (getPatternParser() != null) {
+			config.setPatternParser(getPatternParser());
+		}
+		else {
+			config.setSuffixPatternMatch(useSuffixPatternMatch());
+			config.setRegisteredSuffixPatternMatch(useRegisteredSuffixPatternMatch());
+			config.setPathMatcher(getPathMatcher());
+		}
+		return config;
 	}
 
 	/*
@@ -122,9 +153,15 @@ public class BasePathAwareHandlerMapping extends RequestMappingHandlerMapping {
 		}
 
 		ProducesRequestCondition producesCondition = customize(info.getProducesCondition());
+		try {
+			Field field = RequestMappingInfo.class.getDeclaredField("producesCondition");
+			field.setAccessible(true);
+			field.set(info, producesCondition);
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
 
-		return new RequestMappingInfo(info.getPatternsCondition(), info.getMethodsCondition(), info.getParamsCondition(),
-				info.getHeadersCondition(), info.getConsumesCondition(), producesCondition, info.getCustomCondition());
+		return info;
 	}
 
 	/**

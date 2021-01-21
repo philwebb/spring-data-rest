@@ -33,6 +33,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.ImportResource;
 import org.springframework.core.Ordered;
@@ -120,7 +121,6 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
-import org.springframework.web.servlet.handler.AbstractHandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 
@@ -174,6 +174,8 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	private final Lazy<ObjectMapper> mapper;
 
 	private ClassLoader beanClassLoader;
+
+	private PathMatchConfigurer pathMatchConfigurer;
 
 	private Lazy<RepositoryRestConfigurerDelegate> configurerDelegate;
 	private Lazy<SelfLinkProvider> selfLinkProvider;
@@ -637,6 +639,7 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	 * @return
 	 */
 	@Bean
+	@DependsOn("mvcPathMatcher") // Depend on mvcPathMatcher to force configurePathMatch call
 	public DelegatingHandlerMapping restHandlerMapping(Repositories repositories,
 			RepositoryResourceMappings resourceMappings, Optional<JpaHelper> jpaHelper,
 			RepositoryRestConfiguration repositoryRestConfiguration, CorsConfigurationAware corsRestConfiguration) {
@@ -648,18 +651,20 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 		repositoryMapping.setJpaHelper(jpaHelper.orElse(null));
 		repositoryMapping.setApplicationContext(applicationContext);
 		repositoryMapping.setCorsConfigurations(corsConfigurations);
-		repositoryMapping.afterPropertiesSet();
 
 		BasePathAwareHandlerMapping basePathMapping = new BasePathAwareHandlerMapping(repositoryRestConfiguration);
 		basePathMapping.setApplicationContext(applicationContext);
 		basePathMapping.setCorsConfigurations(corsConfigurations);
-		basePathMapping.afterPropertiesSet();
 
 		List<HandlerMapping> mappings = new ArrayList<>();
 		mappings.add(basePathMapping);
 		mappings.add(repositoryMapping);
 
-		return new DelegatingHandlerMapping(mappings);
+		DelegatingHandlerMapping mapping = new DelegatingHandlerMapping(mappings);
+		if(this.pathMatchConfigurer != null) {
+			mapping.setPatternParser(this.pathMatchConfigurer.getPatternParser());
+		}
+		return mapping;
 	}
 
 	/*
@@ -668,7 +673,7 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	 */
 	@Override
 	public void configurePathMatch(PathMatchConfigurer configurer) {
-		restHandlerMapping.get().setPatternParser(configurer.getPatternParser());
+		this.pathMatchConfigurer = configurer;
 	}
 
 	@Bean

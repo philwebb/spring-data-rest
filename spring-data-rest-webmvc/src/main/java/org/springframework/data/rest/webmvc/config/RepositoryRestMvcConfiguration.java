@@ -26,6 +26,7 @@ import java.util.Set;
 
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.BeanFactoryUtils;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -122,6 +123,7 @@ import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.Module;
@@ -160,6 +162,8 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	@Autowired(required = false) List<EntityLookup<?>> lookups = Collections.emptyList();
 
 	@Autowired List<HttpMessageConverter<?>> defaultMessageConverters;
+
+	private PathPatternParser pathPatternParser;
 
 	ObjectProvider<LinkRelationProvider> relProvider;
 	ObjectProvider<CurieProvider> curieProvider;
@@ -647,18 +651,48 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 		repositoryMapping.setJpaHelper(jpaHelper.orElse(null));
 		repositoryMapping.setApplicationContext(applicationContext);
 		repositoryMapping.setCorsConfigurations(corsConfigurations);
-		repositoryMapping.afterPropertiesSet();
 
 		BasePathAwareHandlerMapping basePathMapping = new BasePathAwareHandlerMapping(repositoryRestConfiguration);
 		basePathMapping.setApplicationContext(applicationContext);
 		basePathMapping.setCorsConfigurations(corsConfigurations);
-		basePathMapping.afterPropertiesSet();
 
 		List<HandlerMapping> mappings = new ArrayList<>();
 		mappings.add(basePathMapping);
 		mappings.add(repositoryMapping);
 
-		return new DelegatingHandlerMapping(mappings);
+		DelegatingHandlerMapping delegatingHandlerMapping = new DelegatingHandlerMapping(mappings);
+		PathPatternParser pathPatternParser = getPathPatternParser();
+		if (pathPatternParser != null) {
+			delegatingHandlerMapping.setPatternParser(pathPatternParser);
+		}
+
+		repositoryMapping.afterPropertiesSet();
+		basePathMapping.afterPropertiesSet();
+		return delegatingHandlerMapping;
+	}
+
+	private PathPatternParser getPathPatternParser() {
+		if (this.pathPatternParser != null) {
+			return this.pathPatternParser;
+		}
+
+		// With Spring 5.3.4+ we have a bean
+		try {
+			this.pathPatternParser = this.applicationContext.getBean("mvcPatternParser", PathPatternParser.class);
+			if (this.pathPatternParser != null) {
+				return this.pathPatternParser;
+			}
+		}
+		catch (NoSuchBeanDefinitionException ex) {
+		}
+
+		// With earlier versions get the 'mvcUrlPathHelper' bean to trigger the configurePathMatch callback
+		try {
+			this.applicationContext.getBean("mvcUrlPathHelper");
+		}
+		catch (NoSuchBeanDefinitionException ex) {
+		}
+		return this.pathPatternParser;
 	}
 
 	/*
@@ -666,8 +700,10 @@ public class RepositoryRestMvcConfiguration extends HateoasAwareSpringDataWebCon
 	 * @see org.springframework.web.servlet.config.annotation.WebMvcConfigurer#configurePathMatch(org.springframework.web.servlet.config.annotation.PathMatchConfigurer)
 	 */
 	@Override
-	public void configurePathMatch(PathMatchConfigurer configurer) {
-		restHandlerMapping.get().setPatternParser(configurer.getPatternParser());
+	public void configurePathMatch(PathMatchConfigurer pathMatchConfigurer) {
+		if (this.pathPatternParser == null) {
+			this.pathPatternParser = pathMatchConfigurer.getPatternParser();
+		}
 	}
 
 	@Bean
